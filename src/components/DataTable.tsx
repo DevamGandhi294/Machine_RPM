@@ -17,7 +17,8 @@ export function DataTable({ readings }: DataTableProps) {
     return readings.filter(
       (r) =>
         r.device_id.toLowerCase().includes(q) ||
-        r.reading_time.toLowerCase().includes(q)
+        r.reading_time.toLowerCase().includes(q) ||
+        (r.uptime && r.uptime.toLowerCase().includes(q))
     );
   }, [readings, search]);
 
@@ -28,11 +29,14 @@ export function DataTable({ readings }: DataTableProps) {
   const exportToCSV = () => {
     if (!filtered || filtered.length === 0) return;
 
-    const headers = ["Device ID", "RPM", "Count", "Reading Time", "Received At"];
+    const headers = ["Device ID", "RPM", "Count", "Uptime", "Machine Start", "Machine End", "Reading Time", "Received At"];
     const rows = filtered.map((r) => [
       `"${r.device_id}"`,
       r.rpm.toFixed(1),
       r.count,
+      `"${r.uptime || ""}"`,
+      `"${r.machine_start || ""}"`,
+      `"${r.machine_end || ""}"`,
       `"${r.reading_time}"`,
       `"${new Date(r.created_at).toLocaleString()}"`,
     ]);
@@ -53,7 +57,7 @@ export function DataTable({ readings }: DataTableProps) {
     <div className="bg-slate-900/50 backdrop-blur rounded-xl border border-slate-800 overflow-hidden">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-5 py-4 border-b border-slate-800">
         <div className="flex items-center gap-3">
-          <h3 className="text-sm font-semibold text-white">All Historical Readings</h3>
+          <h3 className="text-sm font-semibold text-white">All Telemetry Readings</h3>
           <span className="text-xs px-2 py-0.5 rounded-full bg-cyan-500/10 text-cyan-400 font-medium">
             {filtered.length} records
           </span>
@@ -90,14 +94,16 @@ export function DataTable({ readings }: DataTableProps) {
               <th className="px-5 py-3 font-medium">Device Collection</th>
               <th className="px-5 py-3 font-medium">RPM</th>
               <th className="px-5 py-3 font-medium">Count</th>
-              <th className="px-5 py-3 font-medium">Reading Time</th>
-              <th className="px-5 py-3 font-medium">Received At</th>
+              <th className="px-5 py-3 font-medium">Uptime</th>
+              <th className="px-5 py-3 font-medium">Machine Start</th>
+              <th className="px-5 py-3 font-medium">Machine End</th>
+              <th className="px-5 py-3 font-medium">Time</th>
             </tr>
           </thead>
           <tbody>
             {pageData.length === 0 ? (
               <tr>
-                <td colSpan={5} className="px-5 py-10 text-center text-slate-600">
+                <td colSpan={7} className="px-5 py-10 text-center text-slate-600">
                   No readings found
                 </td>
               </tr>
@@ -112,10 +118,10 @@ export function DataTable({ readings }: DataTableProps) {
                   </td>
                   <td className="px-5 py-3 text-cyan-400 font-semibold tabular-nums">{r.rpm.toFixed(1)}</td>
                   <td className="px-5 py-3 text-slate-400 tabular-nums">{r.count}</td>
+                  <td className="px-5 py-3 text-emerald-400 font-mono text-xs">{r.uptime || "—"}</td>
+                  <td className="px-5 py-3 text-slate-400 font-mono text-xs">{r.machine_start || "—"}</td>
+                  <td className="px-5 py-3 text-slate-400 font-mono text-xs">{r.machine_end || "—"}</td>
                   <td className="px-5 py-3 text-slate-400 font-mono text-xs">{r.reading_time}</td>
-                  <td className="px-5 py-3 text-slate-500 text-xs">
-                    {new Date(r.created_at).toLocaleString()}
-                  </td>
                 </tr>
               ))
             )}

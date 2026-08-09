@@ -17,6 +17,14 @@ export const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 export const db = getFirestore(app);
 export const rtdb = getDatabase(app);
 
+export interface DeviceConfig {
+  machine_id: string;
+  is_storing: boolean;           // store data ON / OFF
+  frequency_seconds: number;      // frequency in seconds after how much time to store from RTDB
+  is_online: boolean;             // online / offline status
+  machine_status: "running" | "idle" | "offline"; // machine status (running or not)
+}
+
 export interface SensorReading {
   id: string;
   device_id: string;
@@ -24,6 +32,9 @@ export interface SensorReading {
   rpm: number;
   reading_time: string;
   created_at: string;
+  machine_start?: string;
+  machine_end?: string;
+  uptime?: string;
 }
 
 export type ReadingAggregation = {
