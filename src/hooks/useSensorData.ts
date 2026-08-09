@@ -16,6 +16,7 @@ import {
 } from "firebase/database";
 
 const lastStoreTimeMap = new Map<string, number>();
+const knownDevices = new Set<string>();
 
 /**
  * Pushes a new historical reading entry
@@ -60,7 +61,9 @@ export async function pushHistoricalReading(
 
 /**
  * Updates device document in Firestore "devices" collection WITHOUT last_updated field
- * Uses setDoc with merge: true to guarantee all 5 fields are present!
+ * Defaults for all 5 fields are only written when the document is first created —
+ * writing them on every call would overwrite user-set values such as
+ * frequency_seconds and is_storing (merge only protects fields absent from the payload).
  */
 export async function updateDeviceConfigInFirestore(
   machineId: string,
@@ -68,18 +71,26 @@ export async function updateDeviceConfigInFirestore(
 ) {
   try {
     const deviceRef = doc(db, "devices", machineId);
-    await setDoc(
-      deviceRef,
-      {
-        machine_id: machineId,
-        is_storing: true,
-        frequency_seconds: 5,
-        is_online: true,
-        machine_status: "idle",
-        ...config,
-      },
-      { merge: true }
-    );
+
+    // Existence is cached because syncToFirestore calls this on every reading
+    if (!knownDevices.has(machineId)) {
+      const snap = await getDoc(deviceRef);
+      knownDevices.add(machineId);
+
+      if (!snap.exists()) {
+        await setDoc(deviceRef, {
+          machine_id: machineId,
+          is_storing: true,
+          frequency_seconds: 5,
+          is_online: true,
+          machine_status: "idle",
+          ...config,
+        });
+        return true;
+      }
+    }
+
+    await setDoc(deviceRef, { machine_id: machineId, ...config }, { merge: true });
     return true;
   } catch (err) {
     console.warn(`Error updating device config for ${machineId}:`, err);
