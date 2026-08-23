@@ -18,18 +18,26 @@ export const db = getFirestore(app);
 export const rtdb = getDatabase(app);
 
 export interface DeviceConfig {
-  machine_id: string;
+  machine_id: string;             // Unique Machine ID/Code (e.g. "MCH-001" or "RPM1")
+  machine_name: string;           // Human-readable Machine Name (e.g. "CNC Milling Machine #1")
+  device_id: string;              // Connected IoT Hardware Device ID (e.g. "RPM1")
+  location?: string;              // Machine Location/Floor
   is_storing: boolean;           // store data ON / OFF
   frequency_seconds: number;      // frequency in seconds after how much time to store from RTDB
   is_online: boolean;             // online / offline status
   machine_status: "running" | "idle" | "offline"; // machine status (running or not)
+  updated_at?: string;
 }
 
 export interface SensorReading {
   id: string;
-  device_id: string;
+  device_id: string;              // Connected IoT Hardware Device ID
+  machine_id?: string;            // Linked Machine Code/ID
+  machine_name?: string;          // Linked Machine Name
   count: number;
   rpm: number;
+  vib_peak_g?: number;            // Vibration Peak (g)
+  vib_rms_g?: number;             // Vibration RMS (g)
   reading_time: string;
   created_at: string;
   machine_start?: string;
@@ -39,8 +47,11 @@ export interface SensorReading {
 
 export type ReadingAggregation = {
   device_id: string;
+  machine_name?: string;
   latest_rpm: number;
   latest_count: number;
+  latest_vib_peak?: number;
+  latest_vib_rms?: number;
   latest_time: string;
   avg_rpm: number;
   max_rpm: number;

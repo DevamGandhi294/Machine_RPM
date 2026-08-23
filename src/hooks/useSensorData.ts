@@ -5,6 +5,7 @@ import {
   doc,
   setDoc,
   getDoc,
+  deleteDoc,
   onSnapshot,
   collectionGroup
 } from "firebase/firestore";
@@ -26,7 +27,7 @@ export async function pushHistoricalReading(
   count: number,
   rpm: number,
   readingTime?: string,
-  extraFields?: { machine_start?: string; machine_end?: string; uptime?: string }
+  extraFields?: { machine_start?: string; machine_end?: string; uptime?: string; vib_peak_g?: number; vib_rms_g?: number }
 ) {
   const now = new Date();
   const timeStr = readingTime || `${now.toISOString().split("T")[0]} ${now.toTimeString().split(" ")[0]}`;
@@ -36,6 +37,8 @@ export async function pushHistoricalReading(
     device_id: deviceId,
     count,
     rpm,
+    vib_peak_g: extraFields?.vib_peak_g ?? 0,
+    vib_rms_g: extraFields?.vib_rms_g ?? 0,
     reading_time: timeStr,
     created_at: createdAt,
     machine_start: extraFields?.machine_start || timeStr,
@@ -80,20 +83,47 @@ export async function updateDeviceConfigInFirestore(
       if (!snap.exists()) {
         await setDoc(deviceRef, {
           machine_id: machineId,
+          machine_name: config.machine_name || machineId,
+          device_id: config.device_id || machineId,
+          location: config.location || "",
           is_storing: true,
           frequency_seconds: 5,
           is_online: true,
           machine_status: "idle",
+          updated_at: new Date().toISOString(),
           ...config,
         });
         return true;
       }
     }
 
-    await setDoc(deviceRef, { machine_id: machineId, ...config }, { merge: true });
+    await setDoc(
+      deviceRef,
+      {
+        machine_id: machineId,
+        updated_at: new Date().toISOString(),
+        ...config,
+      },
+      { merge: true }
+    );
     return true;
   } catch (err) {
     console.warn(`Error updating device config for ${machineId}:`, err);
+    return false;
+  }
+}
+
+/**
+ * Deletes machine document from Firestore 'devices' collection
+ */
+export async function deleteDeviceFromFirestore(machineId: string) {
+  try {
+    const deviceRef = doc(db, "devices", machineId);
+    await deleteDoc(deviceRef);
+    knownDevices.delete(machineId);
+    return true;
+  } catch (err) {
+    console.warn(`Error deleting device config for ${machineId}:`, err);
     return false;
   }
 }
@@ -111,7 +141,9 @@ export async function storeReadingInFirestoreSubcollection(
     const readingItem: SensorReading = {
       id: `${machineId}_${Date.now()}`,
       ...reading,
-      device_id: machineId,
+      device_id: reading.device_id || machineId,
+      machine_id: reading.machine_id || machineId,
+      machine_name: reading.machine_name || machineId,
       created_at: reading.created_at || nowIso,
     };
 
@@ -180,12 +212,17 @@ export function useDevices() {
         const list: DeviceConfig[] = [];
         snapshot.forEach((docSnap) => {
           const d = docSnap.data();
+          const mId = docSnap.id || d.machine_id;
           list.push({
-            machine_id: docSnap.id || d.machine_id,
+            machine_id: mId,
+            machine_name: d.machine_name || d.name || mId,
+            device_id: d.device_id || mId,
+            location: d.location || "",
             is_storing: Boolean(d.is_storing ?? true),
             frequency_seconds: Number(d.frequency_seconds ?? 5),
             is_online: Boolean(d.is_online ?? true),
             machine_status: d.machine_status || "idle",
+            updated_at: d.updated_at,
           });
         });
         setDevices(list);
@@ -218,13 +255,19 @@ export function useSensorData(refreshMs = 10000) {
     const unsub = onSnapshot(devicesRef, (snapshot) => {
       snapshot.forEach((docSnap) => {
         const d = docSnap.data();
-        deviceConfigsRef.current.set(docSnap.id, {
-          machine_id: docSnap.id,
+        const mId = docSnap.id || d.machine_id;
+        const configObj: DeviceConfig = {
+          machine_id: mId,
+          machine_name: d.machine_name || d.name || mId,
+          device_id: d.device_id || mId,
+          location: d.location || "",
           is_storing: Boolean(d.is_storing ?? true),
           frequency_seconds: Number(d.frequency_seconds ?? 5),
           is_online: Boolean(d.is_online ?? true),
           machine_status: d.machine_status || "idle",
-        });
+          updated_at: d.updated_at,
+        };
+        deviceConfigsRef.current.set(mId, configObj);
       });
     });
     return () => unsub();
@@ -232,7 +275,23 @@ export function useSensorData(refreshMs = 10000) {
 
   const processAndSetReadings = useCallback(() => {
     if (!mounted.current) return;
-    const all = Array.from(readingsMapRef.current.values());
+    const configsMap = deviceConfigsRef.current;
+    const configsList = Array.from(configsMap.values());
+
+    const all = Array.from(readingsMapRef.current.values()).map((r) => {
+      const matched = configsList.find(
+        (c) => c.device_id === r.device_id || c.machine_id === r.device_id || c.machine_id === r.machine_id
+      );
+      if (matched) {
+        return {
+          ...r,
+          machine_id: matched.machine_id,
+          machine_name: matched.machine_name || matched.machine_id,
+        };
+      }
+      return r;
+    });
+
     all.sort((a, b) => {
       const dateA = new Date(a.created_at || a.reading_time).getTime();
       const dateB = new Date(b.created_at || b.reading_time).getTime();
@@ -246,18 +305,30 @@ export function useSensorData(refreshMs = 10000) {
   const parseItem = (key: string, val: any, defaultDeviceId: string): SensorReading | null => {
     if (!val || typeof val !== "object") return null;
 
+    const devId = val.device_id || defaultDeviceId;
     const count = Number(val.count ?? val.c ?? 0);
     const rpm = Number(val.rpm ?? val.r ?? 0);
+    const vibPeakG = Number(val.vib_peak_g ?? val.vib_peak ?? val.v_peak ?? 0);
+    const vibRmsG = Number(val.vib_rms_g ?? val.vib_rms ?? val.v_rms ?? 0);
     const rawTime = val.time || val.reading_time || val.created_at;
 
     let readingTime = typeof rawTime === "string" ? rawTime : new Date().toLocaleString();
     let createdAt = typeof rawTime === "string" && rawTime.includes("-") ? rawTime : new Date().toISOString();
 
+    // Match connected machine by device_id or machine_id
+    const matchedConfig = Array.from(deviceConfigsRef.current.values()).find(
+      (c) => c.device_id === devId || c.machine_id === devId
+    );
+
     return {
       id: key,
-      device_id: val.device_id || defaultDeviceId,
+      device_id: devId,
+      machine_id: matchedConfig?.machine_id || devId,
+      machine_name: matchedConfig?.machine_name || matchedConfig?.machine_id || devId,
       count,
       rpm,
+      vib_peak_g: vibPeakG,
+      vib_rms_g: vibRmsG,
       reading_time: readingTime,
       created_at: createdAt,
       machine_start: val.machine_start || undefined,
@@ -296,6 +367,8 @@ export function useSensorData(refreshMs = 10000) {
           device_id: machineId,
           count: item.count,
           rpm: item.rpm,
+          vib_peak_g: item.vib_peak_g ?? 0,
+          vib_rms_g: item.vib_rms_g ?? 0,
           reading_time: item.reading_time,
           created_at: item.created_at,
           machine_start: item.machine_start,
@@ -325,7 +398,7 @@ export function useSensorData(refreshMs = 10000) {
                 const nodeVal = rootVal[nodeKey];
                 if (!nodeVal || typeof nodeVal !== "object") return;
 
-                if ("count" in nodeVal || "rpm" in nodeVal || "time" in nodeVal || "uptime" in nodeVal) {
+                if ("count" in nodeVal || "rpm" in nodeVal || "time" in nodeVal || "uptime" in nodeVal || "vib_peak_g" in nodeVal) {
                   const item = parseItem(`rtdb_${nodeKey}`, nodeVal, nodeKey);
                   if (item) {
                     readingsMapRef.current.set(item.id, item);
@@ -336,7 +409,7 @@ export function useSensorData(refreshMs = 10000) {
                     const childVal = nodeVal[pushKey];
                     if (!childVal || typeof childVal !== "object") return;
 
-                    if ("count" in childVal || "rpm" in childVal || "time" in childVal || "uptime" in childVal) {
+                    if ("count" in childVal || "rpm" in childVal || "time" in childVal || "uptime" in childVal || "vib_peak_g" in childVal) {
                       const item = parseItem(`rtdb_${nodeKey}_${pushKey}`, childVal, nodeKey);
                       if (item) {
                         readingsMapRef.current.set(item.id, item);
@@ -380,6 +453,8 @@ export function useSensorData(refreshMs = 10000) {
                   device_id: r.device_id || "RPM1",
                   count: Number(r.count ?? 0),
                   rpm: Number(r.rpm ?? 0),
+                  vib_peak_g: Number(r.vib_peak_g ?? r.vib_peak ?? 0),
+                  vib_rms_g: Number(r.vib_rms_g ?? r.vib_rms ?? 0),
                   reading_time: r.reading_time || r.time || new Date().toISOString(),
                   created_at: r.created_at || r.time || new Date().toISOString(),
                   machine_start: r.machine_start || undefined,
@@ -394,6 +469,8 @@ export function useSensorData(refreshMs = 10000) {
                 device_id: data.device_id || "RPM1",
                 count: Number(data.count ?? 0),
                 rpm: Number(data.rpm ?? 0),
+                vib_peak_g: Number(data.vib_peak_g ?? data.vib_peak ?? 0),
+                vib_rms_g: Number(data.vib_rms_g ?? data.vib_rms ?? 0),
                 reading_time: data.reading_time || data.time || new Date().toISOString(),
                 created_at: data.created_at || data.time || new Date().toISOString(),
                 machine_start: data.machine_start || undefined,

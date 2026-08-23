@@ -11,33 +11,34 @@ interface DashboardViewProps {
 
 export function DashboardView({ readings, lastUpdated }: DashboardViewProps) {
   const stats = useMemo(() => {
-    const devices = new Map<string, SensorReading[]>();
+    const machines = new Map<string, SensorReading[]>();
     for (const r of readings) {
-      if (!devices.has(r.device_id)) devices.set(r.device_id, []);
-      const arr = devices.get(r.device_id)!;
+      const key = r.machine_id || r.device_id;
+      if (!machines.has(key)) machines.set(key, []);
+      const arr = machines.get(key)!;
       if (arr.length < 100) arr.push(r);
     }
 
-    const deviceList = Array.from(devices.keys()).sort();
+    const machineList = Array.from(machines.keys()).sort();
     const totalReadings = readings.length;
     const allRpms = readings.map((r) => r.rpm);
     const avgRpm = totalReadings > 0 ? allRpms.reduce((s, r) => s + r, 0) / totalReadings : 0;
     const maxRpm = totalReadings > 0 ? Math.max(...allRpms) : 0;
 
-    const latestPerDevice = deviceList.map((id) => {
-      const devReadings = devices.get(id)!;
+    const latestPerMachine = machineList.map((id) => {
+      const devReadings = machines.get(id)!;
       return devReadings[0];
     });
-    const totalCurrentRpm = latestPerDevice.reduce((s, r) => s + (r?.rpm ?? 0), 0);
+    const totalCurrentRpm = latestPerMachine.reduce((s, r) => s + (r?.rpm ?? 0), 0);
 
     return {
-      deviceCount: deviceList.length,
+      deviceCount: machineList.length,
       totalReadings,
       avgRpm,
       maxRpm,
       totalCurrentRpm,
-      devices: devices,
-      deviceList,
+      machines,
+      machineList,
     };
   }, [readings]);
 
@@ -45,8 +46,8 @@ export function DashboardView({ readings, lastUpdated }: DashboardViewProps) {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-bold text-white">Dashboard</h2>
-          <p className="text-sm text-slate-500 mt-0.5">
+          <h2 className="text-xl font-bold text-slate-900 dark:text-white">Dashboard</h2>
+          <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
             {lastUpdated ? `Last updated ${lastUpdated.toLocaleTimeString()}` : "Loading..."}
           </p>
         </div>
@@ -82,14 +83,23 @@ export function DashboardView({ readings, lastUpdated }: DashboardViewProps) {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {stats.deviceList.length > 0 ? (
-          stats.deviceList.map((deviceId) => (
-            <RpmChart key={deviceId} readings={stats.devices.get(deviceId)!} />
-          ))
+        {stats.machineList.length > 0 ? (
+          stats.machineList.map((machineId) => {
+            const machineReadings = stats.machines.get(machineId)!;
+            const latest = machineReadings[0];
+            return (
+              <RpmChart
+                key={machineId}
+                readings={machineReadings}
+                title={latest?.machine_name || machineId}
+                subtitle={latest?.device_id ? `Connected IoT Device: ${latest.device_id}` : undefined}
+              />
+            );
+          })
         ) : (
-          <div className="col-span-2 bg-slate-900/50 backdrop-blur rounded-xl p-10 border border-slate-800 text-center">
-            <Activity className="w-10 h-10 text-slate-700 mx-auto mb-3" />
-            <p className="text-slate-500 text-sm">No sensor data yet. Waiting for devices to report...</p>
+          <div className="col-span-2 bg-white/90 dark:bg-slate-900/50 backdrop-blur rounded-xl p-10 border border-slate-200/80 dark:border-slate-800 text-center shadow-sm dark:shadow-none">
+            <Activity className="w-10 h-10 text-slate-400 dark:text-slate-700 mx-auto mb-3" />
+            <p className="text-slate-500 dark:text-slate-400 text-sm">No sensor data yet. Waiting for devices to report...</p>
           </div>
         )}
       </div>

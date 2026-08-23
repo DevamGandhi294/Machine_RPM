@@ -9,8 +9,8 @@ export function DataTableView({ readings }: DataTableViewProps) {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-xl font-bold text-white">Data Table</h2>
-        <p className="text-sm text-slate-500 mt-0.5">{readings.length} total readings across all devices</p>
+        <h2 className="text-xl font-bold text-slate-900 dark:text-white">Data Table</h2>
+        <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">{readings.length} total readings across all devices</p>
       </div>
       <DataTable readings={readings} />
     </div>
