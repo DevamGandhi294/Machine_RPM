@@ -2,6 +2,7 @@ import { useEffect, useState, useMemo } from "react";
 import { Radio, Activity, Clock, PlayCircle, StopCircle, Gauge, Hash, Timer } from "lucide-react";
 import { RpmChart } from "@/components/RpmChart";
 import { useDeviceReadings } from "@/hooks/useSensorData";
+import { calculateRollingRpm } from "@/lib/rpmAlgorithm";
 import type { SensorReading } from "@/lib/firebase";
 
 interface LiveViewProps {
@@ -9,6 +10,15 @@ interface LiveViewProps {
 }
 
 export function LiveView({ readings }: LiveViewProps) {
+  const [currentTime, setCurrentTime] = useState(() => Date.now());
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentTime(Date.now());
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
   const devices = useMemo(() => {
     const map = new Map<string, SensorReading[]>();
     for (const r of readings) {
@@ -32,6 +42,12 @@ export function LiveView({ readings }: LiveViewProps) {
   const machineDisplayName = latest?.machine_name || selected;
   const iotDeviceId = latest?.device_id || selected;
 
+  const selectedRpmMetrics = calculateRollingRpm(deviceReadings, {
+    currentNow: currentTime,
+    windowSeconds: 60,
+    timeoutSeconds: 10,
+  });
+
   return (
     <div className="space-y-6">
       <div>
@@ -40,7 +56,7 @@ export function LiveView({ readings }: LiveViewProps) {
           Live Data Panel
         </h2>
         <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
-          Real-time machine status, RPM, uptime, and start/stop timestamps from connected IoT devices
+          Real-time machine status, RPM (60s calibrated), uptime, and telemetry from connected IoT devices
         </p>
       </div>
 
@@ -57,7 +73,13 @@ export function LiveView({ readings }: LiveViewProps) {
             {deviceList.map((id) => {
               const devReadings = devices.get(id) ?? [];
               const devLatest = devReadings[0];
-              const rpm = devLatest?.rpm ?? 0;
+              const metrics = calculateRollingRpm(devReadings, {
+                currentNow: currentTime,
+                windowSeconds: 60,
+                timeoutSeconds: 10,
+              });
+              const rpm = metrics.rpm;
+              const isOnline = metrics.isOnline;
               const active = selected === id;
               const name = devLatest?.machine_name || id;
               const iotId = devLatest?.device_id || id;
@@ -73,7 +95,7 @@ export function LiveView({ readings }: LiveViewProps) {
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                      <div className={`w-2.5 h-2.5 rounded-full ${rpm > 0 ? "bg-emerald-500 animate-pulse" : "bg-cyan-500"}`} />
+                      <div className={`w-2.5 h-2.5 rounded-full ${isOnline && rpm > 0 ? "bg-emerald-500 animate-pulse" : isOnline ? "bg-amber-500" : "bg-slate-400"}`} />
                       <div>
                         <span className="text-slate-900 dark:text-white font-semibold text-sm block leading-tight">{name}</span>
                         <span className="text-[10px] text-cyan-600 dark:text-cyan-400 font-mono block mt-0.5 font-medium">IoT: {iotId}</span>
@@ -112,8 +134,8 @@ export function LiveView({ readings }: LiveViewProps) {
                         <span className="text-cyan-600 dark:text-cyan-400 font-mono font-medium">Connected IoT: {iotDeviceId}</span>
                       </p>
                     </div>
-                    <span className={`text-xs px-3 py-1 rounded-full font-medium ${latest && latest.rpm > 0 ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20" : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700"}`}>
-                      {latest && latest.rpm > 0 ? "Running" : "Idle"}
+                    <span className={`text-xs px-3 py-1 rounded-full font-medium ${selectedRpmMetrics.isOnline && selectedRpmMetrics.rpm > 0 ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20" : selectedRpmMetrics.isOnline ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20" : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700"}`}>
+                      {!selectedRpmMetrics.isOnline ? "Offline" : selectedRpmMetrics.rpm > 0 ? "Running" : "Idle"}
                     </span>
                   </div>
 
@@ -123,9 +145,9 @@ export function LiveView({ readings }: LiveViewProps) {
                       <div className="bg-slate-50 dark:bg-slate-950 p-4 rounded-xl border border-slate-200/80 dark:border-slate-800/80">
                         <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 mb-1 font-medium">
                           <Gauge className="w-3.5 h-3.5 text-cyan-600 dark:text-cyan-400" />
-                          <span>RPM</span>
+                          <span>RPM (60s)</span>
                         </div>
-                        <p className="text-3xl font-extrabold text-cyan-600 dark:text-cyan-400 tabular-nums">{latest.rpm.toFixed(0)}</p>
+                        <p className="text-3xl font-extrabold text-cyan-600 dark:text-cyan-400 tabular-nums">{selectedRpmMetrics.rpm.toFixed(0)}</p>
                       </div>
 
                       {/* Metric 2: Count */}

@@ -1,4 +1,5 @@
 import { Gauge, ArrowUp, ArrowDown, Minus } from "lucide-react";
+import { calculateRollingRpm } from "@/lib/rpmAlgorithm";
 import type { SensorReading } from "@/lib/firebase";
 
 interface DeviceCardProps {
@@ -9,9 +10,13 @@ interface DeviceCardProps {
 }
 
 export function DeviceCard({ deviceId, readings, onSelect, isSelected }: DeviceCardProps) {
+  const metrics = calculateRollingRpm(readings, {
+    windowSeconds: 60,
+    timeoutSeconds: 10,
+  });
   const latest = readings[0];
   const previous = readings[1];
-  const currentRpm = latest?.rpm ?? 0;
+  const currentRpm = metrics.rpm;
   const prevRpm = previous?.rpm ?? 0;
   const diff = currentRpm - prevRpm;
   const trendIcon = diff > 0.5 ? ArrowUp : diff < -0.5 ? ArrowDown : Minus;

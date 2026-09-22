@@ -1,7 +1,8 @@
-import { useMemo } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { Activity, Gauge, TrendingUp, Database, Radio } from "lucide-react";
 import { StatCard } from "@/components/StatCard";
 import { RpmChart } from "@/components/RpmChart";
+import { calculateRollingRpm } from "@/lib/rpmAlgorithm";
 import type { SensorReading } from "@/lib/firebase";
 
 interface DashboardViewProps {
@@ -10,6 +11,15 @@ interface DashboardViewProps {
 }
 
 export function DashboardView({ readings, lastUpdated }: DashboardViewProps) {
+  const [currentTime, setCurrentTime] = useState(() => Date.now());
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentTime(Date.now());
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
   const stats = useMemo(() => {
     const machines = new Map<string, SensorReading[]>();
     for (const r of readings) {
@@ -21,18 +31,35 @@ export function DashboardView({ readings, lastUpdated }: DashboardViewProps) {
 
     const machineList = Array.from(machines.keys()).sort();
     const totalReadings = readings.length;
-    const allRpms = readings.map((r) => r.rpm);
-    const avgRpm = totalReadings > 0 ? allRpms.reduce((s, r) => s + r, 0) / totalReadings : 0;
-    const maxRpm = totalReadings > 0 ? Math.max(...allRpms) : 0;
 
-    const latestPerMachine = machineList.map((id) => {
+    let totalCurrentRpm = 0;
+    let activeOnlineCount = 0;
+    const rollingRpms: number[] = [];
+
+    machineList.forEach((id) => {
       const devReadings = machines.get(id)!;
-      return devReadings[0];
+      const rpmMetrics = calculateRollingRpm(devReadings, {
+        currentNow: currentTime,
+        windowSeconds: 60,
+        timeoutSeconds: 10,
+      });
+
+      if (rpmMetrics.isOnline) {
+        activeOnlineCount += 1;
+        totalCurrentRpm += rpmMetrics.rpm;
+        if (rpmMetrics.rpm > 0) {
+          rollingRpms.push(rpmMetrics.rpm);
+        }
+      }
     });
-    const totalCurrentRpm = latestPerMachine.reduce((s, r) => s + (r?.rpm ?? 0), 0);
+
+    const avgRpm = rollingRpms.length > 0 ? rollingRpms.reduce((s, r) => s + r, 0) / rollingRpms.length : 0;
+    const allRpms = readings.map((r) => r.rpm);
+    const maxRpm = allRpms.length > 0 ? Math.max(...allRpms) : 0;
 
     return {
       deviceCount: machineList.length,
+      activeOnlineCount,
       totalReadings,
       avgRpm,
       maxRpm,
@@ -40,7 +67,7 @@ export function DashboardView({ readings, lastUpdated }: DashboardViewProps) {
       machines,
       machineList,
     };
-  }, [readings]);
+  }, [readings, currentTime]);
 
   return (
     <div className="space-y-6">

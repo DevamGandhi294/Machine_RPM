@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { db, rtdb, type SensorReading, type DeviceConfig } from "@/lib/firebase";
+import { calculateInstantRpm } from "@/lib/rpmAlgorithm";
 import {
   collection,
   doc,
@@ -307,7 +308,10 @@ export function useSensorData(refreshMs = 10000) {
 
     const devId = val.device_id || defaultDeviceId;
     const count = Number(val.count ?? val.c ?? 0);
-    const rpm = Number(val.rpm ?? val.r ?? 0);
+    let rpm = Number(val.rpm ?? val.r ?? 0);
+    if (rpm === 0 && count > 0) {
+      rpm = calculateInstantRpm(count, 3);
+    }
     const vibPeakG = Number(val.vib_peak_g ?? val.vib_peak ?? val.v_peak ?? 0);
     const vibRmsG = Number(val.vib_rms_g ?? val.vib_rms ?? val.v_rms ?? 0);
     const rawTime = val.time || val.reading_time || val.created_at;

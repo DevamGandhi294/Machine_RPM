@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { RpmChart } from "@/components/RpmChart";
 import { useDevices, updateDeviceConfigInFirestore, deleteDeviceFromFirestore } from "@/hooks/useSensorData";
+import { calculateRollingRpm } from "@/lib/rpmAlgorithm";
 import type { SensorReading, DeviceConfig } from "@/lib/firebase";
 
 interface DevicesViewProps {
@@ -420,20 +421,16 @@ export function DevicesView({ readings }: DevicesViewProps) {
               const latest = devReadings[0];
               const isSelected = selected === machineId;
 
-              // Heartbeat condition: ONLINE if packet received within the last 10 seconds
-              const latestTimeMs = (() => {
-                if (!latest) return 0;
-                const timeStr = latest.created_at || latest.reading_time;
-                if (!timeStr) return 0;
-                const num = Number(timeStr);
-                if (!isNaN(num) && num > 0) {
-                  return num < 1e11 ? num * 1000 : num;
-                }
-                const parsed = new Date(timeStr).getTime();
-                return isNaN(parsed) ? 0 : parsed;
-              })();
+              // Compute 60-second rolling calibrated RPM, 3s instant RPM, and heartbeat online status
+              const rpmMetrics = calculateRollingRpm(devReadings, {
+                currentNow: currentTime,
+                windowSeconds: 60,
+                timeoutSeconds: 10,
+              });
 
-              const isOnline = latestTimeMs > 0 && (currentTime - latestTimeMs) <= 10000 && (currentTime - latestTimeMs) >= -5000;
+              const isOnline = rpmMetrics.isOnline;
+              const displayRpm = rpmMetrics.rpm;
+              const isRunning = isOnline && displayRpm > 0;
 
               return (
                 <div
@@ -499,8 +496,8 @@ export function DevicesView({ readings }: DevicesViewProps) {
                       </span>
 
                       {/* Machine Running / Idle */}
-                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${isOnline && latest && latest.rpm > 0 ? "bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border border-cyan-500/20" : "bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20"}`}>
-                        {isOnline && latest && latest.rpm > 0 ? "RUNNING" : "IDLE"}
+                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${isRunning ? "bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border border-cyan-500/20" : "bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20"}`}>
+                        {isRunning ? "RUNNING" : "IDLE"}
                       </span>
                     </div>
                   </div>
@@ -508,8 +505,8 @@ export function DevicesView({ readings }: DevicesViewProps) {
                   {/* Telemetry Snapshot */}
                   <div className="grid grid-cols-4 gap-2 bg-slate-50 dark:bg-slate-950 p-3 rounded-lg border border-slate-200/80 dark:border-slate-800/80 mb-4 text-center">
                     <div>
-                      <p className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">RPM</p>
-                      <p className="text-base font-bold text-cyan-600 dark:text-cyan-400 tabular-nums">{latest?.rpm.toFixed(0) ?? 0}</p>
+                      <p className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">RPM (60s)</p>
+                      <p className="text-base font-bold text-cyan-600 dark:text-cyan-400 tabular-nums">{displayRpm.toFixed(0)}</p>
                     </div>
                     <div>
                       <p className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">Count</p>
