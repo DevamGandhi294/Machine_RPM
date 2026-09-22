@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import {
   Activity,
   Plus,
@@ -28,6 +28,16 @@ interface DevicesViewProps {
 
 export function DevicesView({ readings }: DevicesViewProps) {
   const { devices: firestoreDevices } = useDevices();
+
+  // 1-second dynamic timer to re-evaluate heartbeat timeout (10s offline threshold)
+  const [currentTime, setCurrentTime] = useState(() => Date.now());
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentTime(Date.now());
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   // Modal / Form State for Add or Edit Machine
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -410,6 +420,21 @@ export function DevicesView({ readings }: DevicesViewProps) {
               const latest = devReadings[0];
               const isSelected = selected === machineId;
 
+              // Heartbeat condition: ONLINE if packet received within the last 10 seconds
+              const latestTimeMs = (() => {
+                if (!latest) return 0;
+                const timeStr = latest.created_at || latest.reading_time;
+                if (!timeStr) return 0;
+                const num = Number(timeStr);
+                if (!isNaN(num) && num > 0) {
+                  return num < 1e11 ? num * 1000 : num;
+                }
+                const parsed = new Date(timeStr).getTime();
+                return isNaN(parsed) ? 0 : parsed;
+              })();
+
+              const isOnline = latestTimeMs > 0 && (currentTime - latestTimeMs) <= 10000 && (currentTime - latestTimeMs) >= -5000;
+
               return (
                 <div
                   key={machineId}
@@ -467,15 +492,15 @@ export function DevicesView({ readings }: DevicesViewProps) {
                     </span>
 
                     <div className="flex items-center gap-1.5">
-                      {/* Online / Offline */}
-                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium flex items-center gap-1 ${config.is_online ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20" : "bg-slate-200 dark:bg-slate-800 text-slate-500"}`}>
-                        {config.is_online ? <CheckCircle className="w-2.5 h-2.5" /> : <XCircle className="w-2.5 h-2.5" />}
-                        {config.is_online ? "ONLINE" : "OFFLINE"}
+                      {/* Online / Offline (Real-time 10s Heartbeat) */}
+                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium flex items-center gap-1 ${isOnline ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20" : "bg-slate-200 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-300 dark:border-slate-700"}`}>
+                        {isOnline ? <CheckCircle className="w-2.5 h-2.5" /> : <XCircle className="w-2.5 h-2.5" />}
+                        {isOnline ? "ONLINE" : "OFFLINE"}
                       </span>
 
                       {/* Machine Running / Idle */}
-                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${latest && latest.rpm > 0 ? "bg-cyan-500/10 text-cyan-600 dark:text-cyan-400" : "bg-amber-500/10 text-amber-600 dark:text-amber-400"}`}>
-                        {latest && latest.rpm > 0 ? "RUNNING" : "IDLE"}
+                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${isOnline && latest && latest.rpm > 0 ? "bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border border-cyan-500/20" : "bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20"}`}>
+                        {isOnline && latest && latest.rpm > 0 ? "RUNNING" : "IDLE"}
                       </span>
                     </div>
                   </div>
