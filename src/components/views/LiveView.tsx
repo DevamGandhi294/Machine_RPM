@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from "react";
-import { Radio, Activity, Clock, PlayCircle, StopCircle, Gauge, Hash, Timer } from "lucide-react";
+import { Radio, Activity, Clock, PlayCircle, StopCircle, Gauge, Hash, Timer, Ruler, Calculator, Layers, TrendingUp } from "lucide-react";
 import { RpmChart } from "@/components/RpmChart";
 import { useDeviceReadings } from "@/hooks/useSensorData";
 import { calculateRollingRpm } from "@/lib/rpmAlgorithm";
@@ -11,6 +11,8 @@ interface LiveViewProps {
 
 export function LiveView({ readings }: LiveViewProps) {
   const [currentTime, setCurrentTime] = useState(() => Date.now());
+  const [rollDiameter, setRollDiameter] = useState<number>(90); // Default 90 mm
+  const [ppr, setPpr] = useState<number>(1); // Default 1 Pulse per Revolution
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -48,6 +50,37 @@ export function LiveView({ readings }: LiveViewProps) {
     timeoutSeconds: 10,
   });
 
+  // Roll Diameter & Pulse Calculations
+  const pi = 3.1416;
+  const validDiameter = rollDiameter > 0 ? rollDiameter : 90;
+  const validPpr = ppr > 0 ? ppr : 1;
+
+  // 1. Roll Circumference (mm & m)
+  const circumferenceMm = pi * validDiameter; // e.g. 3.1416 * 90 = 282.744 mm
+  const circumferenceM = circumferenceMm / 1000; // e.g. 0.282744 m
+
+  // 2. Material per Pulse
+  const materialPerPulseM = circumferenceM / validPpr; // e.g. 0.282744 m / 1 = 0.282744 m
+  const materialPerPulseCm = materialPerPulseM * 100; // e.g. 28.2744 cm
+
+  // 3. Live Total Material Production Length
+  const currentCount = latest?.count ?? 0;
+  const totalMaterialM = currentCount * materialPerPulseM; // Total meters produced
+  const totalMaterialCm = totalMaterialM * 100;
+
+  // 4. Line Production Speed (Meters / Minute - MPM)
+  const lineSpeedMpm = selectedRpmMetrics.rpm * materialPerPulseM;
+
+  // Interactive Test Inputs & Calculations
+  const [testPulses, setTestPulses] = useState<number>(1000);
+  const [targetMeters, setTargetMeters] = useState<number>(100);
+
+  const testMetersOutput = testPulses * materialPerPulseM;
+  const testCmOutput = testMetersOutput * 100;
+
+  const targetPulsesRequired = materialPerPulseM > 0 ? Math.round(targetMeters / materialPerPulseM) : 0;
+  const targetRotationsRequired = targetPulsesRequired / validPpr;
+
   return (
     <div className="space-y-6">
       <div>
@@ -56,7 +89,7 @@ export function LiveView({ readings }: LiveViewProps) {
           Live Data Panel
         </h2>
         <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
-          Real-time machine status, RPM (60s calibrated), uptime, and telemetry from connected IoT devices
+          Real-time machine status, RPM (60s calibrated), production length report, and telemetry from connected IoT devices
         </p>
       </div>
 
@@ -228,6 +261,256 @@ export function LiveView({ readings }: LiveViewProps) {
                   )}
                 </div>
 
+                {/* Production Report & Roll Diameter Pulse Calculator */}
+                <div className="bg-white/90 dark:bg-slate-900/50 backdrop-blur rounded-xl p-6 border border-slate-200/80 dark:border-slate-800 space-y-6 shadow-sm dark:shadow-none">
+                  {/* Report Header & Controls */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200/80 dark:border-slate-800 pb-4">
+                    <div>
+                      <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                        <Ruler className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+                        Production Report (Roll Diameter & Pulse Calculator)
+                      </h3>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                        Material movement & production length calculated from roll circumference (<span className="font-mono">π × Diameter</span>)
+                      </p>
+                    </div>
+
+                    {/* Calibration Inputs */}
+                    <div className="flex items-center gap-3 bg-slate-50 dark:bg-slate-950 p-2 rounded-xl border border-slate-200/80 dark:border-slate-800">
+                      <div>
+                        <label className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400 block mb-0.5">
+                          Roll Diameter (mm)
+                        </label>
+                        <input
+                          type="number"
+                          min="1"
+                          max="2000"
+                          value={rollDiameter}
+                          onChange={(e) => setRollDiameter(Number(e.target.value))}
+                          className="w-24 bg-white dark:bg-slate-900 text-slate-900 dark:text-white text-xs rounded-md px-2 py-1 border border-slate-300 dark:border-slate-700 font-mono font-bold focus:border-cyan-500 focus:outline-none"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400 block mb-0.5">
+                          Encoder PPR
+                        </label>
+                        <input
+                          type="number"
+                          min="1"
+                          max="10000"
+                          value={ppr}
+                          onChange={(e) => setPpr(Number(e.target.value))}
+                          className="w-20 bg-white dark:bg-slate-900 text-slate-900 dark:text-white text-xs rounded-md px-2 py-1 border border-slate-300 dark:border-slate-700 font-mono font-bold focus:border-cyan-500 focus:outline-none"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* KPI Cards */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
+                    {/* KPI 1: Total Production Output (Meters) */}
+                    <div className="bg-emerald-500/5 dark:bg-emerald-950/30 p-4 rounded-xl border border-emerald-500/20">
+                      <div className="flex items-center justify-between text-xs text-emerald-700 dark:text-emerald-400 mb-1 font-semibold">
+                        <span className="flex items-center gap-1.5">
+                          <Layers className="w-3.5 h-3.5" />
+                          <span>Total Production</span>
+                        </span>
+                        <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">Meters</span>
+                      </div>
+                      <p className="text-3xl font-black text-emerald-600 dark:text-emerald-400 tabular-nums">
+                        {totalMaterialM.toFixed(2)} <span className="text-sm font-normal text-slate-500">m</span>
+                      </p>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 font-mono">
+                        = {totalMaterialCm.toFixed(1)} cm
+                      </p>
+                    </div>
+
+                    {/* KPI 2: Line Speed (MPM) */}
+                    <div className="bg-cyan-500/5 dark:bg-cyan-950/30 p-4 rounded-xl border border-cyan-500/20">
+                      <div className="flex items-center justify-between text-xs text-cyan-700 dark:text-cyan-400 mb-1 font-semibold">
+                        <span className="flex items-center gap-1.5">
+                          <TrendingUp className="w-3.5 h-3.5" />
+                          <span>Line Speed</span>
+                        </span>
+                        <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border border-cyan-500/20">MPM</span>
+                      </div>
+                      <p className="text-3xl font-black text-cyan-600 dark:text-cyan-400 tabular-nums">
+                        {lineSpeedMpm.toFixed(1)} <span className="text-xs font-normal text-slate-500">m/min</span>
+                      </p>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 font-mono">
+                        @{selectedRpmMetrics.rpm.toFixed(0)} RPM
+                      </p>
+                    </div>
+
+                    {/* KPI 3: Material per Pulse */}
+                    <div className="bg-slate-50 dark:bg-slate-950 p-4 rounded-xl border border-slate-200/80 dark:border-slate-800/80">
+                      <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 mb-1 font-medium">
+                        <Calculator className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+                        <span>Material / Pulse</span>
+                      </div>
+                      <p className="text-2xl font-bold text-slate-900 dark:text-white tabular-nums font-mono">
+                        {materialPerPulseM.toFixed(5)} <span className="text-xs font-normal text-slate-500">m</span>
+                      </p>
+                      <p className="text-xs text-amber-600 dark:text-amber-400 mt-1 font-mono">
+                        {materialPerPulseCm.toFixed(3)} cm / pulse
+                      </p>
+                    </div>
+
+                    {/* KPI 4: Roll Circumference */}
+                    <div className="bg-slate-50 dark:bg-slate-950 p-4 rounded-xl border border-slate-200/80 dark:border-slate-800/80">
+                      <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 mb-1 font-medium">
+                        <Ruler className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
+                        <span>Circumference (π×D)</span>
+                      </div>
+                      <p className="text-2xl font-bold text-purple-600 dark:text-purple-400 tabular-nums font-mono">
+                        {circumferenceMm.toFixed(2)} <span className="text-xs font-normal text-slate-500">mm</span>
+                      </p>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 font-mono">
+                        = {(circumferenceMm / 10).toFixed(3)} cm
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Interactive Test Input Calculator Box */}
+                  <div className="bg-slate-50 dark:bg-slate-950/80 p-5 rounded-xl border border-slate-200/80 dark:border-slate-800 space-y-4">
+                    <div className="flex items-center justify-between border-b border-slate-200/80 dark:border-slate-800 pb-3">
+                      <h4 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200 flex items-center gap-2">
+                        <Calculator className="w-4 h-4 text-cyan-600 dark:text-cyan-400" />
+                        Interactive Production Test Calculators
+                      </h4>
+                      <span className="text-[11px] font-mono text-cyan-600 dark:text-cyan-400 bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/20 font-medium">
+                        Input Test Data $\rightarrow$ See Instant Output
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {/* Test 1: Input Test Pulses -> Output Production Meters */}
+                      <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200/80 dark:border-slate-800 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                            <Hash className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+                            Input Test Pulses (Count)
+                          </label>
+                          <span className="text-[10px] text-slate-500 font-mono">Pulse $\rightarrow$ Meters</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="number"
+                            min="0"
+                            value={testPulses}
+                            onChange={(e) => setTestPulses(Number(e.target.value))}
+                            placeholder="Enter pulses (e.g. 1000)"
+                            className="bg-slate-100 dark:bg-slate-950 text-slate-900 dark:text-white text-sm font-bold font-mono rounded-lg px-3 py-2 border border-slate-300 dark:border-slate-700 focus:border-cyan-500 focus:outline-none w-full"
+                          />
+                        </div>
+                        <div className="bg-emerald-500/10 dark:bg-emerald-950/50 p-3 rounded-lg border border-emerald-500/30 flex items-center justify-between">
+                          <span className="text-xs text-slate-600 dark:text-slate-300 font-medium">Calculated Material Output:</span>
+                          <span className="text-lg font-black text-emerald-600 dark:text-emerald-400 font-mono">
+                            {testMetersOutput.toFixed(2)} m <span className="text-xs font-normal text-slate-500">({testCmOutput.toFixed(1)} cm)</span>
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Test 2: Input Target Meters -> Output Required Pulses */}
+                      <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200/80 dark:border-slate-800 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                            <Ruler className="w-4 h-4 text-cyan-600 dark:text-cyan-400" />
+                            Input Target Material (Meters)
+                          </label>
+                          <span className="text-[10px] text-slate-500 font-mono">Meters $\rightarrow$ Pulses</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.1"
+                            value={targetMeters}
+                            onChange={(e) => setTargetMeters(Number(e.target.value))}
+                            placeholder="Enter target meters (e.g. 100)"
+                            className="bg-slate-100 dark:bg-slate-950 text-slate-900 dark:text-white text-sm font-bold font-mono rounded-lg px-3 py-2 border border-slate-300 dark:border-slate-700 focus:border-cyan-500 focus:outline-none w-full"
+                          />
+                        </div>
+                        <div className="bg-cyan-500/10 dark:bg-cyan-950/50 p-3 rounded-lg border border-cyan-500/30 flex items-center justify-between">
+                          <span className="text-xs text-slate-600 dark:text-slate-300 font-medium">Required Pulses / Rotations:</span>
+                          <span className="text-lg font-black text-cyan-600 dark:text-cyan-400 font-mono">
+                            {targetPulsesRequired} <span className="text-xs font-normal text-slate-500">pulses ({targetRotationsRequired.toFixed(1)} revs)</span>
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Pulse Calculation Reference Table */}
+                  <div className="bg-slate-50 dark:bg-slate-950/60 p-4 rounded-xl border border-slate-200/80 dark:border-slate-800/80 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                        <Calculator className="w-4 h-4 text-cyan-600 dark:text-cyan-400" />
+                        Pulse & Material Movement Table (Roll Diameter = {validDiameter} mm)
+                      </h4>
+                      <span className="text-[11px] font-mono text-slate-500 dark:text-slate-400">
+                        Formula: <span className="text-cyan-600 dark:text-cyan-400 font-bold">Pulses × {materialPerPulseM.toFixed(5)} m</span>
+                      </span>
+                    </div>
+
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs text-left">
+                        <thead>
+                          <tr className="text-slate-500 dark:text-slate-400 uppercase tracking-wider border-b border-slate-200/80 dark:border-slate-800 bg-slate-100 dark:bg-slate-900/80 font-semibold">
+                            <th className="px-4 py-2 font-mono">Pulses Count</th>
+                            <th className="px-4 py-2 font-mono">Material Movement (Meters)</th>
+                            <th className="px-4 py-2 font-mono">Material Movement (Centimeters)</th>
+                            <th className="px-4 py-2 font-mono">Rotations Equivalent</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-200/60 dark:divide-slate-800/60 font-mono">
+                          <tr className="hover:bg-slate-100/50 dark:hover:bg-slate-900/40">
+                            <td className="px-4 py-2 font-bold text-slate-900 dark:text-white">1 Pulse</td>
+                            <td className="px-4 py-2 text-cyan-600 dark:text-cyan-400 font-bold">{(1 * materialPerPulseM).toFixed(5)} m</td>
+                            <td className="px-4 py-2 text-slate-700 dark:text-slate-300">{(1 * materialPerPulseCm).toFixed(3)} cm</td>
+                            <td className="px-4 py-2 text-slate-500">{(1 / validPpr).toFixed(2)} rotation</td>
+                          </tr>
+                          <tr className="hover:bg-slate-100/50 dark:hover:bg-slate-900/40">
+                            <td className="px-4 py-2 font-bold text-slate-900 dark:text-white">10 Pulses</td>
+                            <td className="px-4 py-2 text-cyan-600 dark:text-cyan-400 font-bold">{(10 * materialPerPulseM).toFixed(4)} m</td>
+                            <td className="px-4 py-2 text-slate-700 dark:text-slate-300">{(10 * materialPerPulseCm).toFixed(2)} cm</td>
+                            <td className="px-4 py-2 text-slate-500">{(10 / validPpr).toFixed(2)} rotations</td>
+                          </tr>
+                          <tr className="hover:bg-slate-100/50 dark:hover:bg-slate-900/40">
+                            <td className="px-4 py-2 font-bold text-slate-900 dark:text-white">100 Pulses</td>
+                            <td className="px-4 py-2 text-cyan-600 dark:text-cyan-400 font-bold">{(100 * materialPerPulseM).toFixed(3)} m</td>
+                            <td className="px-4 py-2 text-slate-700 dark:text-slate-300">{(100 * materialPerPulseCm).toFixed(1)} cm</td>
+                            <td className="px-4 py-2 text-slate-500">{(100 / validPpr).toFixed(2)} rotations</td>
+                          </tr>
+                          <tr className="hover:bg-slate-100/50 dark:hover:bg-slate-900/40">
+                            <td className="px-4 py-2 font-bold text-slate-900 dark:text-white">1,000 Pulses</td>
+                            <td className="px-4 py-2 text-cyan-600 dark:text-cyan-400 font-bold">{(1000 * materialPerPulseM).toFixed(2)} m</td>
+                            <td className="px-4 py-2 text-slate-700 dark:text-slate-300">{(1000 * materialPerPulseCm).toFixed(0)} cm</td>
+                            <td className="px-4 py-2 text-slate-500">{(1000 / validPpr).toFixed(2)} rotations</td>
+                          </tr>
+                          {/* Highlighted Row for Live Machine Count */}
+                          <tr className="bg-emerald-500/10 dark:bg-emerald-950/40 font-bold">
+                            <td className="px-4 py-2.5 text-emerald-700 dark:text-emerald-400 flex items-center gap-1.5">
+                              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                              Live ({currentCount} Pulses)
+                            </td>
+                            <td className="px-4 py-2.5 text-emerald-600 dark:text-emerald-400 text-sm">
+                              {totalMaterialM.toFixed(2)} m
+                            </td>
+                            <td className="px-4 py-2.5 text-emerald-700 dark:text-emerald-300">
+                              {totalMaterialCm.toFixed(1)} cm
+                            </td>
+                            <td className="px-4 py-2.5 text-emerald-600 dark:text-emerald-400">
+                              {(currentCount / validPpr).toFixed(2)} rotations
+                            </td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+
                 <RpmChart readings={deviceReadings} height={240} />
               </>
             )}
@@ -237,3 +520,4 @@ export function LiveView({ readings }: LiveViewProps) {
     </div>
   );
 }
+

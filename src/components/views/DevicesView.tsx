@@ -417,7 +417,11 @@ export function DevicesView({ readings }: DevicesViewProps) {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {activeMachineIds.map((machineId) => {
               const config = getDeviceConfig(machineId);
-              const devReadings = devicesMap.get(machineId) ?? devicesMap.get(config.device_id) ?? [];
+              const directReadings = devicesMap.get(machineId);
+              const linkedReadings = (config.device_id && config.device_id !== machineId && !firestoreDevices.some((d) => d.machine_id === config.device_id))
+                ? devicesMap.get(config.device_id)
+                : undefined;
+              const devReadings = directReadings ?? linkedReadings ?? [];
               const latest = devReadings[0];
               const isSelected = selected === machineId;
 

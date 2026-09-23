@@ -16,7 +16,8 @@ export function getReadingTimestampMs(reading?: Partial<SensorReading> | null): 
 }
 
 /**
- * Checks if device is currently sending live packets (within timeoutSeconds, default 10s)
+ * Checks if device is online by comparing the device's own telemetry timestamp with current time.
+ * If (currentNow - deviceTime) <= 10 seconds, the device is ONLINE; otherwise OFFLINE.
  */
 export function isDeviceOnline(
   reading?: SensorReading | null,
@@ -24,10 +25,14 @@ export function isDeviceOnline(
   currentNow: number = Date.now()
 ): boolean {
   if (!reading) return false;
+
+  // Extract device's own timestamp (e.g. "2026-09-23T08:51:59.000Z")
   const t = getReadingTimestampMs(reading);
   if (t <= 0) return false;
+
   const diffMs = currentNow - t;
-  // Allow minor clock skew up to -5 seconds
+
+  // Allow minor clock skew up to -5 seconds, and 10 seconds delay threshold
   return diffMs >= -5000 && diffMs <= timeoutSeconds * 1000;
 }
 
@@ -89,7 +94,7 @@ export function calculateRollingRpm(
   const latest = readings[0];
   const online = isDeviceOnline(latest, timeoutSeconds, currentNow);
 
-  // If machine is offline (no packets for >10s), force RPM to 0
+  // If machine is offline (no packets for >30s), force RPM to 0
   if (!online) {
     return {
       rpm: 0,
@@ -102,12 +107,12 @@ export function calculateRollingRpm(
   }
 
   const latestTimeMs = getReadingTimestampMs(latest);
-  const cutoffTimeMs = latestTimeMs - windowSeconds * 1000;
+  const cutoffTimeMs = latestTimeMs > 0 ? latestTimeMs - windowSeconds * 1000 : 0;
 
   // Filter all readings inside the 60-second window
   const windowReadings = readings.filter((r) => {
     const t = getReadingTimestampMs(r);
-    return t >= cutoffTimeMs && t <= latestTimeMs + 2000;
+    return cutoffTimeMs === 0 || (t >= cutoffTimeMs && t <= latestTimeMs + 5000);
   });
 
   if (windowReadings.length === 0) {
@@ -122,41 +127,57 @@ export function calculateRollingRpm(
     };
   }
 
-  // 1. Calculate instant RPM from the newest packet
+  // 1. Calculate instant RPM from the newest packet & second newest packet if available
   let instantRpm = latest.rpm || 0;
-  if (instantRpm === 0 && latest.count > 0) {
-    // If raw count is given without pre-computed rpm from hardware, compute from 3-second assumption
-    instantRpm = calculateInstantRpm(latest.count, 3);
+  if (instantRpm === 0) {
+    if (windowReadings.length > 1) {
+      const prev = windowReadings[1];
+      const countDelta = Math.max(0, latest.count - prev.count);
+      const timeDeltaSec = Math.max(1, (getReadingTimestampMs(latest) - getReadingTimestampMs(prev)) / 1000);
+      instantRpm = calculateInstantRpm(countDelta, isNaN(timeDeltaSec) || timeDeltaSec <= 0 ? 3 : timeDeltaSec);
+    } else if (latest.count > 0) {
+      // Single reading fallback
+      instantRpm = latest.count <= 100 ? calculateInstantRpm(latest.count, 3) : 0;
+    }
   }
 
   // 2. Rolling Window RPM calculation over the 60-second window
-  let totalWindowCount = 0;
   let totalRpmSum = 0;
+  let hasRawRpm = false;
 
   for (const r of windowReadings) {
-    totalWindowCount += r.count || 0;
-    totalRpmSum += r.rpm || 0;
+    if (r.rpm > 0) {
+      totalRpmSum += r.rpm;
+      hasRawRpm = true;
+    }
   }
 
-  // Calculate actual elapsed window duration in seconds
   const oldestInWindow = windowReadings[windowReadings.length - 1];
   const oldestTimeMs = getReadingTimestampMs(oldestInWindow);
   const elapsedMs = Math.max(latestTimeMs - oldestTimeMs, 3000);
   const elapsedSeconds = Math.min(elapsedMs / 1000, windowSeconds);
 
   let rollingRpm = 0;
-  if (totalRpmSum > 0) {
-    // If hardware already provides RPM values, compute rolling smoothed average
+  let rollingCount = 0;
+
+  if (hasRawRpm && windowReadings.length > 0) {
     rollingRpm = totalRpmSum / windowReadings.length;
-  } else if (totalWindowCount > 0) {
-    // If hardware sends pulse counts per 3s packet, extrapolate to 60s
-    rollingRpm = (totalWindowCount / elapsedSeconds) * 60;
+    rollingCount = windowReadings.reduce((sum, r) => sum + r.count, 0);
+  } else if (windowReadings.length > 1) {
+    // Cumulative pulse count delta across window
+    const maxCount = Math.max(...windowReadings.map((r) => r.count));
+    const minCount = Math.min(...windowReadings.map((r) => r.count));
+    rollingCount = Math.max(0, maxCount - minCount);
+    rollingRpm = (rollingCount / elapsedSeconds) * 60;
+  } else {
+    rollingRpm = instantRpm;
+    rollingCount = latest.count || 0;
   }
 
   return {
     rpm: Math.max(0, Math.round(rollingRpm * 10) / 10),
     instantRpm: Math.max(0, Math.round(instantRpm * 10) / 10),
-    rollingCount: totalWindowCount,
+    rollingCount,
     windowSeconds,
     isOnline: online,
     sampleCount: windowReadings.length,

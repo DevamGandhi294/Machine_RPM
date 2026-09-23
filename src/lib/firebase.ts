@@ -40,6 +40,7 @@ export interface SensorReading {
   vib_rms_g?: number;             // Vibration RMS (g)
   reading_time: string;
   created_at: string;
+  received_at?: number;            // Browser packet receipt timestamp (ms)
   machine_start?: string;
   machine_end?: string;
   uptime?: string;

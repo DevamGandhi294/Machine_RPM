@@ -309,12 +309,9 @@ export function useSensorData(refreshMs = 10000) {
     const devId = val.device_id || defaultDeviceId;
     const count = Number(val.count ?? val.c ?? 0);
     let rpm = Number(val.rpm ?? val.r ?? 0);
-    if (rpm === 0 && count > 0) {
-      rpm = calculateInstantRpm(count, 3);
-    }
-    const vibPeakG = Number(val.vib_peak_g ?? val.vib_peak ?? val.v_peak ?? 0);
+    const vibPeakG = Number(val.vib_peak_g ?? val.vib_peak ?? val.v_peak ?? val.vibration ?? 0);
     const vibRmsG = Number(val.vib_rms_g ?? val.vib_rms ?? val.v_rms ?? 0);
-    const rawTime = val.time || val.reading_time || val.created_at;
+    const rawTime = val.time || val.reading_time || val.created_at || val.timestamp || val.t;
 
     let readingTime = typeof rawTime === "string" ? rawTime : new Date().toLocaleString();
     let createdAt = typeof rawTime === "string" && rawTime.includes("-") ? rawTime : new Date().toISOString();
@@ -335,6 +332,7 @@ export function useSensorData(refreshMs = 10000) {
       vib_rms_g: vibRmsG,
       reading_time: readingTime,
       created_at: createdAt,
+      received_at: val.received_at || Date.now(),
       machine_start: val.machine_start || undefined,
       machine_end: val.machine_end || undefined,
       uptime: val.uptime || undefined,
@@ -402,8 +400,17 @@ export function useSensorData(refreshMs = 10000) {
                 const nodeVal = rootVal[nodeKey];
                 if (!nodeVal || typeof nodeVal !== "object") return;
 
-                if ("count" in nodeVal || "rpm" in nodeVal || "time" in nodeVal || "uptime" in nodeVal || "vib_peak_g" in nodeVal) {
-                  const item = parseItem(`rtdb_${nodeKey}`, nodeVal, nodeKey);
+                if (
+                  "count" in nodeVal ||
+                  "rpm" in nodeVal ||
+                  "time" in nodeVal ||
+                  "uptime" in nodeVal ||
+                  "vib_peak_g" in nodeVal ||
+                  "vibration" in nodeVal
+                ) {
+                  const rawTimeStr = nodeVal.time || nodeVal.reading_time || nodeVal.created_at || Date.now();
+                  const readingId = `rtdb_${nodeKey}_${rawTimeStr}`;
+                  const item = parseItem(readingId, nodeVal, nodeKey);
                   if (item) {
                     readingsMapRef.current.set(item.id, item);
                     syncToFirestore(item);
@@ -413,7 +420,14 @@ export function useSensorData(refreshMs = 10000) {
                     const childVal = nodeVal[pushKey];
                     if (!childVal || typeof childVal !== "object") return;
 
-                    if ("count" in childVal || "rpm" in childVal || "time" in childVal || "uptime" in childVal || "vib_peak_g" in childVal) {
+                    if (
+                      "count" in childVal ||
+                      "rpm" in childVal ||
+                      "time" in childVal ||
+                      "uptime" in childVal ||
+                      "vib_peak_g" in childVal ||
+                      "vibration" in childVal
+                    ) {
                       const item = parseItem(`rtdb_${nodeKey}_${pushKey}`, childVal, nodeKey);
                       if (item) {
                         readingsMapRef.current.set(item.id, item);
